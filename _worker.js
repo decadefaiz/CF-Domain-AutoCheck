@@ -110,7 +110,7 @@ function isKVConfigured() {
 // ================================
 
 // 登录页面模板
-const getLoginHTML = (title) => `
+const getLoginHTML = (title, warningHtml = '') => `
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -278,6 +278,7 @@ const getLoginHTML = (title) => `
     </style>
 </head>
 <body>
+    ${warningHtml}
     <a href="https://github.com/kamanfaiz/CF-Domain-Autocheck" target="_blank" class="github-corner" title="GitHub Repository">
         <i class="iconfont icon-github1"></i>
     </a>
@@ -329,7 +330,7 @@ const getLoginHTML = (title) => `
 `;
 
 // 主界面模板
-const getHTMLContent = (title) => `
+const getHTMLContent = (title, warningHtml = '') => `
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -1827,6 +1828,7 @@ const getHTMLContent = (title) => `
     </style>
 </head>
 <body>
+    ${warningHtml}
     <div class="container">
         <!-- 导航栏 -->
         <nav class="navbar">
@@ -2037,6 +2039,7 @@ const getHTMLContent = (title) => `
                     </form>
                 </div>
                 <div class="modal-footer">
+                    <button type="button" class="btn btn-warning me-auto" id="testExpiredNotifyBtn" style="display: none;"><span style="color: white;"><i class="iconfont icon-paper-plane"></i> 过期通知测试</span></button>
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal"><span style="color: white;"><i class="iconfont icon-xmark"></i> 取消</span></button>
                                 <button type="button" class="btn btn-primary" id="saveDomainBtn"><span style="color: white;"><i class="iconfont icon-save-3-fill"></i> 保存</span></button>
                 </div>
@@ -2122,6 +2125,11 @@ const getHTMLContent = (title) => `
                                 <button type="button" class="btn btn-info" id="testTelegramBtn"><i class="iconfont icon-paper-plane" style="color: white;"></i> <span style="color: white;">测试Telegram通知</span></button>
                                 <span id="testResult" class="ms-2"></span>
                             </div>
+                        </div>
+                        <hr>
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span class="form-text m-0">通知发送结果会写入日志，失败原因可在日志中查看</span>
+                            <a href="/logs" target="_blank" rel="noopener" class="btn btn-sm btn-outline-light"><span style="color: white;">查看通知日志</span></a>
                         </div>
                     </form>
                 </div>
@@ -2301,6 +2309,12 @@ const getHTMLContent = (title) => `
             
             // 保存域名按钮
             document.getElementById('saveDomainBtn').addEventListener('click', saveDomain);
+
+            // 编辑页的过期通知测试按钮：强制按“已过期”模板发送一条测试消息
+            document.getElementById('testExpiredNotifyBtn').addEventListener('click', function() {
+                const domainId = this.dataset.domainId;
+                if (domainId) testDomainNotification(domainId, true);
+            });
             
             // 确认删除按钮
             document.getElementById('confirmDeleteBtn').addEventListener('click', deleteDomain);
@@ -2479,6 +2493,10 @@ const getHTMLContent = (title) => `
             // 域名通知设置 - 全局/自定义切换
             document.getElementById('useGlobalSettings').addEventListener('change', function() {
                 document.getElementById('domainNotifySettings').style.display = this.checked ? 'none' : 'block';
+                // 切回全局设置时恢复“启用到期通知”，避免勾选全局反而把通知关掉
+                if (this.checked) {
+                    document.getElementById('notifyEnabled').checked = true;
+                }
             });
             
             // 窗口大小变化监听器 - 用于移动端排序修复
@@ -2967,11 +2985,13 @@ const getHTMLContent = (title) => `
             // 获取全局通知设置
             const globalNotifyDays = telegramConfig.notifyDays || 30;
             
-            // 计算每个域名的剩余天数
+            // 计算每个域名的剩余天数（按本地日历天：到期当天为0）
             domains.forEach(domain => {
-                const expiryDate = new Date(domain.expiryDate);
                 const today = new Date();
-                domain.daysLeft = Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24));
+                const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+                const expiryDate = new Date(domain.expiryDate);
+                const expiryStart = new Date(expiryDate.getFullYear(), expiryDate.getMonth(), expiryDate.getDate());
+                domain.daysLeft = Math.round((expiryStart - todayStart) / (1000 * 60 * 60 * 24));
             });
             
             // 按照指定字段和顺序排序
@@ -3134,7 +3154,7 @@ const getHTMLContent = (title) => `
                     let progressColor = 'rgba(0, 255, 76, 0.9)'; // 默认绿色
                     
                     // 设置状态标签
-                    if (daysLeft <= 0) {
+                    if (daysLeft < 0) {
                         statusClass = 'expired';
                         statusText = '<i class="iconfont icon-triangle-exclamation"></i> 已过期';
                         statusBadge = 'danger';
@@ -3179,7 +3199,7 @@ const getHTMLContent = (title) => `
                     }
                     
                     // 简化进度条计算逻辑
-                    if (daysLeft <= 0) {
+                    if (daysLeft < 0) {
                         // 已过期域名，但如果有lastRenewed字段，说明已续期
                         if (domain.lastRenewed) {
                             const today = new Date();
@@ -3233,7 +3253,7 @@ const getHTMLContent = (title) => `
                     // SVG圆环和百分比分开处理
                     const percentText = progressPercent + '%';
                     
-                    if (daysLeft <= 0) {
+                    if (daysLeft < 0) {
                         // 已过期域名显示简化的进度条，但保留0%文本
                         progressCircleHtml = 
                             '<div style="position:relative; width:' + svgSize + 'px; height:' + svgSize + 'px;">' +
@@ -3340,7 +3360,7 @@ const getHTMLContent = (title) => `
                         (domain.renewCycle.unit === 'year' ? '年' : 
                          domain.renewCycle.unit === 'month' ? '月' : '天') : '1 年') + 
                         priceHtml + '</p>' +
-                        '<p class="card-text mb-0 text-nowrap" style="overflow: hidden; text-overflow: ellipsis;"><i class="iconfont icon-hourglass-start"></i><strong>剩余天数:</strong>' + (daysLeft > 0 ? daysLeft + ' 天 <span class="text-white-50">(' + formatDaysToYMD(daysLeft) + ')</span>' : '已过期') + '</p>' +
+                        '<p class="card-text mb-0 text-nowrap" style="overflow: hidden; text-overflow: ellipsis;"><i class="iconfont icon-hourglass-start"></i><strong>剩余天数:</strong>' + (daysLeft > 0 ? daysLeft + ' 天 <span class="text-white-50">(' + formatDaysToYMD(daysLeft) + ')</span>' : (daysLeft === 0 ? '今天到期' : '已过期')) + '</p>' +
                         '</div>' +
                         '<div class="progress-circle-container">' +
                         '<div class="progress-circle">' +
@@ -3525,7 +3545,9 @@ const getHTMLContent = (title) => `
             // 确保通知设置字段存在且正确
             const notifySettings = {
                 useGlobalSettings: useGlobalSettings,
-                enabled: notifyEnabled,
+                // 使用全局设置时，通知是否启用由全局配置决定；
+                // 这里固定为 true，避免界面上隐藏的“启用到期通知”残留未勾选状态把通知关掉
+                enabled: useGlobalSettings ? true : notifyEnabled,
                 notifyDays: notifyDays
             };
             
@@ -3679,9 +3701,15 @@ const getHTMLContent = (title) => `
                     // 设置通知选项
                     const notifySettings = domain.notifySettings || { useGlobalSettings: true, enabled: true, notifyDays: 30 };
                     document.getElementById('useGlobalSettings').checked = notifySettings.useGlobalSettings;
-                    document.getElementById('notifyEnabled').checked = notifySettings.enabled;
+                    // 老数据可能没有 enabled 字段，默认视为开启；使用全局设置时强制视为开启
+                    document.getElementById('notifyEnabled').checked = notifySettings.useGlobalSettings ? true : notifySettings.enabled !== false;
                     document.getElementById('domainNotifyDays').value = notifySettings.notifyDays || 30;
                     document.getElementById('domainNotifySettings').style.display = notifySettings.useGlobalSettings ? 'none' : 'block';
+
+                    // 编辑已有域名时显示“过期通知测试”，并把当前域名 ID 挂在按钮上
+                    const testExpiredBtn = document.getElementById('testExpiredNotifyBtn');
+                    testExpiredBtn.dataset.domainId = domain.id;
+                    testExpiredBtn.style.display = 'inline-block';
                     
                     document.querySelector('#addDomainModal .modal-title').textContent = '编辑域名';
                     const modal = new bootstrap.Modal(document.getElementById('addDomainModal'));
@@ -3845,6 +3873,9 @@ const getHTMLContent = (title) => `
                     document.getElementById('notifyEnabled').checked = true;
                     document.getElementById('domainNotifyDays').value = '30';
                     document.getElementById('domainNotifySettings').style.display = 'none';
+                    const testExpiredBtn = document.getElementById('testExpiredNotifyBtn');
+                    testExpiredBtn.dataset.domainId = '';
+                    testExpiredBtn.style.display = 'none';
                     
                     // 重置到期日期字段状态（添加新域名时保持可编辑）
                     document.getElementById('expiryDate').removeAttribute('readonly');
@@ -4458,10 +4489,12 @@ const getHTMLContent = (title) => `
 
 
                 // 添加测试单个域名通知的函数
-                async function testDomainNotification(domainId) {
+                async function testDomainNotification(domainId, forceExpired) {
                     try {
                         const response = await fetch('/api/domains/' + domainId + '/test-notify', {
-                            method: 'POST'
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ forceExpired: !!forceExpired })
                         });
                         
                         if (!response.ok) {
@@ -4620,7 +4653,8 @@ async function handleRequest(request) {
   if (path === '/dashboard') {
     if (isAuthenticated) {
       // 已登录，显示主页面
-      const htmlContent = getHTMLContent(siteTitle);
+      const notifyHealth = await getNotifyHealth();
+      const htmlContent = getHTMLContent(siteTitle, buildNotifyWarning(notifyHealth, true));
       const response = new Response(htmlContent, {
         headers: {
           'Content-Type': 'text/html;charset=UTF-8',
@@ -4634,6 +4668,26 @@ async function handleRequest(request) {
     }
   }
   
+  // 通知日志（纯文本输出，不含界面）
+  if (path === '/logs' && request.method === 'GET') {
+    if (!isAuthenticated) {
+      return Response.redirect(url.origin, 302);
+    }
+    let logs = [];
+    try {
+      const raw = await DOMAIN_MONITOR.get(NOTIFY_LOG_KEY);
+      logs = raw ? JSON.parse(raw) : [];
+    } catch (e) {
+      logs = [];
+    }
+    if (!Array.isArray(logs)) logs = [];
+    return new Response(buildNotifyLogText(logs), {
+      headers: {
+        'Content-Type': 'text/plain;charset=UTF-8',
+      },
+    });
+  }
+
   // 登出功能
   if (path === '/logout') {
     return new Response('登出成功', {
@@ -4651,8 +4705,9 @@ async function handleRequest(request) {
     if (isAuthenticated) {
       return Response.redirect(url.origin + '/dashboard', 302);
     }
-    
-    const loginHtml = getLoginHTML(siteTitle);
+
+    const notifyHealth = await getNotifyHealth();
+    const loginHtml = getLoginHTML(siteTitle, buildNotifyWarning(notifyHealth, false));
     return new Response(loginHtml, {
       headers: {
         'Content-Type': 'text/html;charset=UTF-8',
@@ -4671,7 +4726,8 @@ async function handleRequest(request) {
   }
   
   // 如果都不匹配，返回登录页面
-  const loginHtml = getLoginHTML(siteTitle);
+  const notifyHealth = await getNotifyHealth();
+  const loginHtml = getLoginHTML(siteTitle, buildNotifyWarning(notifyHealth, false));
   return new Response(loginHtml, {
     headers: {
       'Content-Type': 'text/html;charset=UTF-8',
@@ -4779,7 +4835,15 @@ async function handleApiRequest(request) {
   if (path.match(/^\/api\/domains\/[^\/]+\/test-notify$/) && request.method === 'POST') {
     const id = path.split('/')[3];
     try {
-      const result = await testSingleDomainNotification(id);
+      let forceExpired = false;
+      try {
+        const body = await request.json();
+        forceExpired = !!(body && body.forceExpired);
+      } catch (e) {
+        // 请求体为空或不是 JSON 时按普通测试处理
+        forceExpired = false;
+      }
+      const result = await testSingleDomainNotification(id, forceExpired);
       return jsonResponse(result);
     } catch (error) {
       return jsonResponse({ error: '测试通知失败: ' + error.message }, 400);
@@ -5510,6 +5574,86 @@ async function moveCategoryOrder(id, direction) {
 }
 
 // ================================
+// 通知日志（写入KV，纯文本输出）
+// ================================
+const NOTIFY_LOG_KEY = 'notify_logs';
+const NOTIFY_LOG_MAX = 200;
+
+// 时间统一按北京时间展示
+function formatLogTime(ts) {
+  return new Date(ts + 8 * 3600 * 1000).toISOString().replace('T', ' ').slice(0, 19);
+}
+
+// 追加一条通知日志，最多保留最近200条；写日志失败不影响主流程
+async function addNotifyLog(success, text) {
+  try {
+    const raw = await DOMAIN_MONITOR.get(NOTIFY_LOG_KEY);
+    let logs = [];
+    try {
+      logs = raw ? JSON.parse(raw) : [];
+    } catch (e) {
+      logs = [];
+    }
+    if (!Array.isArray(logs)) logs = [];
+    logs.push({ t: Date.now(), ok: !!success, text: String(text) });
+    if (logs.length > NOTIFY_LOG_MAX) {
+      logs = logs.slice(-NOTIFY_LOG_MAX);
+    }
+    await DOMAIN_MONITOR.put(NOTIFY_LOG_KEY, JSON.stringify(logs));
+  } catch (e) {
+    // 记录日志本身失败时忽略，不能影响通知
+  }
+}
+
+// 生成纯文本日志内容（最新在上）
+function buildNotifyLogText(logs) {
+  if (!logs.length) return '暂无通知日志。\n';
+  const lines = logs.slice().reverse().map((l) =>
+    '[' + formatLogTime(l.t) + '] ' + (l.ok ? '成功' : '失败') + '  ' + l.text
+  );
+  return '共 ' + logs.length + ' 条（最新在上，时间为北京时间）\n\n' + lines.join('\n') + '\n';
+}
+
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  })[c]);
+}
+
+// 读取最近一次通知结果，用于页面顶部警告
+async function getNotifyHealth() {
+  try {
+    const raw = await DOMAIN_MONITOR.get(NOTIFY_LOG_KEY);
+    const logs = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(logs) || logs.length === 0) return { failed: false };
+    const last = logs[logs.length - 1];
+    return { failed: !last.ok, time: formatLogTime(last.t), text: last.text || '' };
+  } catch (e) {
+    return { failed: false };
+  }
+}
+
+// 生成页面顶部的失败警告；detailed=false 时用于未登录页面，不暴露聊天ID和日志链接
+function buildNotifyWarning(health, detailed) {
+  if (!health || !health.failed) return '';
+  const link = detailed
+    ? '<a href="/logs" target="_blank" rel="noopener" style="color:#fff;text-decoration:underline;margin-left:6px;">查看日志</a>'
+    : '';
+  const reason = detailed && health.text
+    ? '<div style="font-size:0.85em;opacity:0.95;margin-top:2px;">' + escapeHtml(health.text) + '</div>'
+    : '';
+  return '<div style="position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:99999;max-width:92%;padding:12px 36px 12px 16px;border-radius:8px;background:rgba(200,35,51,0.96);color:#fff;box-shadow:0 6px 18px rgba(0,0,0,0.35);font-size:14px;line-height:1.5;">' +
+    '<strong>⚠️ Telegram 通知发送失败</strong>（' + escapeHtml(health.time) + '）' + link +
+    reason +
+    '<button type="button" onclick="this.parentNode.style.display=\'none\'" aria-label="关闭" style="position:absolute;top:6px;right:8px;background:none;border:none;color:#fff;font-size:18px;line-height:1;cursor:pointer;">×</button>' +
+    '</div>';
+}
+
+// ================================
 
 // 发送Telegram消息
 async function sendTelegramMessage(config, message) {
@@ -5543,31 +5687,69 @@ async function sendTelegramMessage(config, message) {
   }
   
   const url = 'https://api.telegram.org/bot' + botToken + '/sendMessage';
-  
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      chat_id: chatId,
-      text: message,
-      parse_mode: 'HTML',
-    }),
-  });
-  
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error('发送Telegram消息失败: ' + (error.description || '未知错误'));
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: message,
+        parse_mode: 'HTML',
+      }),
+    });
+
+    if (!response.ok) {
+      let description = 'HTTP ' + response.status;
+      try {
+        const error = await response.json();
+        if (error && error.description) description = error.description;
+      } catch (e) {
+        // 响应体不是JSON时保留状态码
+      }
+      throw new Error('发送Telegram消息失败: ' + description);
+    }
+
+    const result = await response.json();
+    await addNotifyLog(true, '已发送到 chat ' + chatId + '，内容 ' + message.length + ' 字');
+    return result;
+  } catch (err) {
+    await addNotifyLog(false, 'chat ' + chatId + '，原因: ' + ((err && err.message) || String(err)));
+    throw err;
   }
-  
-  return await response.json();
+}
+
+// ================================
+// 到期天数工具（参考待办清单的截止日期表达）
+// ================================
+
+// 按北京时间计算日历天：到期当天为0，之后为负数（更符合"还剩几天"的直觉）
+function getDaysLeft(expiryDate) {
+  const now = new Date();
+  const bjNow = new Date(now.getTime() + 8 * 3600 * 1000);
+  const todayStart = Date.UTC(bjNow.getUTCFullYear(), bjNow.getUTCMonth(), bjNow.getUTCDate());
+  const expiry = new Date(expiryDate);
+  const expiryStart = Date.UTC(expiry.getUTCFullYear(), expiry.getUTCMonth(), expiry.getUTCDate());
+  return Math.round((expiryStart - todayStart) / (1000 * 60 * 60 * 24));
+}
+
+// 口语化描述：已过期 N 天 / 今天到期 / 还剩 N 天
+function describeDaysLeft(daysLeft) {
+  if (daysLeft < 0) return '已过期 ' + Math.abs(daysLeft) + ' 天';
+  if (daysLeft === 0) return '今天到期';
+  return '还剩 ' + daysLeft + ' 天';
+}
+
+// 按紧迫程度排序：过期越久越靠前，其次是剩余天数少的
+function sortByUrgency(domains) {
+  return domains.slice().sort((a, b) => getDaysLeft(a.expiryDate) - getDaysLeft(b.expiryDate));
 }
 
 // 设置定时任务，检查即将到期的域名并发送通知
 async function checkExpiringDomains() {
   const domains = await getDomains();
-  const today = new Date();
   
   // 获取Telegram配置
   const telegramConfig = await getTelegramConfigWithToken();
@@ -5575,34 +5757,26 @@ async function checkExpiringDomains() {
   
   // 筛选出即将到期和已过期的域名
   const domainsToNotify = domains.filter(domain => {
-    const expiryDate = new Date(domain.expiryDate);
-    const daysLeft = Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24));
-    
+    const daysLeft = getDaysLeft(domain.expiryDate);
+
     // 获取该域名的通知设置
     const notifySettings = domain.notifySettings || { useGlobalSettings: true, enabled: true, notifyDays: 30 };
-    
+
     // 如果使用全局设置，则使用全局通知天数，否则使用域名自己的设置
     const notifyDays = notifySettings.useGlobalSettings ? globalNotifyDays : notifySettings.notifyDays;
-    
-    // 通知已过期的域名或即将到期的域名
-    return notifySettings.enabled && (
-      daysLeft <= 0 || // 已过期
-      (daysLeft > 0 && daysLeft <= notifyDays) // 即将到期
-    );
+
+    // 使用全局设置时通知始终启用；自定义设置下缺省也视为启用
+    const domainEnabled = notifySettings.useGlobalSettings ? true : notifySettings.enabled !== false;
+
+    // 通知已过期的域名或即将到期的域名（到期当天算即将到期）
+    return domainEnabled && (daysLeft <= 0 || daysLeft <= notifyDays);
   });
-  
+
   // 将域名分为已过期和即将到期两组
-  const expiredDomains = domainsToNotify.filter(domain => {
-    const expiryDate = new Date(domain.expiryDate);
-    const daysLeft = Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24));
-    return daysLeft <= 0;
-  });
-  
-  const expiringDomains = domainsToNotify.filter(domain => {
-    const expiryDate = new Date(domain.expiryDate);
-    const daysLeft = Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24));
-    return daysLeft > 0;
-  });
+  // 到期当天（剩余0天）算"即将到期"，过了一天以上才算"已过期"
+  // 两组都按紧迫程度排序，最急的排最前面，和待办清单一致
+  const expiredDomains = sortByUrgency(domainsToNotify.filter(domain => getDaysLeft(domain.expiryDate) < 0));
+  const expiringDomains = sortByUrgency(domainsToNotify.filter(domain => getDaysLeft(domain.expiryDate) >= 0));
   
   // 如果有即将到期或已过期的域名，发送通知
   if (expiringDomains.length > 0 || expiredDomains.length > 0) {
@@ -5670,82 +5844,49 @@ async function sendExpiringDomainsNotification(config, domains, isExpired) {
 // 发送合并的域名通知（即将到期和已过期）
 async function sendCombinedDomainsNotification(config, expiringDomains, expiredDomains) {
   if (expiringDomains.length === 0 && expiredDomains.length === 0) return;
-  
+
+  // 单条域名的消息块
+  const formatDomainBlock = (domain) => {
+    const daysLeft = getDaysLeft(domain.expiryDate);
+    let block = '🌍 域名: ' + domain.name + '\n';
+    if (domain.registrar) {
+      block += '🏬 注册厂商: ' + domain.registrar + '\n';
+    }
+    block += '⏳ 剩余时间: ' + describeDaysLeft(daysLeft) + '\n';
+    block += '📅 到期日期: ' + formatDate(domain.expiryDate) + '\n';
+    block += domain.renewLink
+      ? '⚠️ 点击续期: ' + domain.renewLink + '\n'
+      : '⚠️ 点击续期: 未设置续期链接\n';
+    return block;
+  };
+
   let message = '';
-  
-  // 处理即将到期的域名
+
+  // 处理即将到期的域名（按紧急程度排序）
   if (expiringDomains.length > 0) {
-    const title = '🚨 <b>域名到期提醒</b> 🚨';
-    const separator = '===================';
-    
-    message += title + '\n' + separator + '\n\n';
-    
-    expiringDomains.forEach((domain, index) => {
-      const expiryDate = new Date(domain.expiryDate);
-      const today = new Date();
-      const daysLeft = Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24));
-      
-      if (index > 0) {
-        message += '\n';
-      }
-      
-      message += '🌍 域名: ' + domain.name + '\n';
-      if (domain.registrar) {
-        message += '🏬 注册厂商: ' + domain.registrar + '\n';
-      }
-      message += '⏳ 剩余时间: ' + daysLeft + ' 天\n';
-      message += '📅 到期日期: ' + formatDate(domain.expiryDate) + '\n';
-      
-      if (domain.renewLink) {
-        message += '⚠️ 点击续期: ' + domain.renewLink + '\n';
-      } else {
-        message += '⚠️ 点击续期: 未设置续期链接\n';
-      }
-    });
+    message += '🚨 <b>域名到期提醒</b> 🚨\n===================\n\n';
+    message += sortByUrgency(expiringDomains).map(formatDomainBlock).join('\n');
+    message += '\n';
   }
-  
+
   // 如果两种类型的域名都存在，添加分隔线
   if (expiringDomains.length > 0 && expiredDomains.length > 0) {
     message += '\n━━━━━━━━━━━━━━━━\n\n';
   }
-  
-  // 处理已过期的域名
+
+  // 处理已过期的域名（过期越久越靠前）
   if (expiredDomains.length > 0) {
-    const title = '🚫 <b>域名已过期提醒</b> 🚫';
-    const separator = '=====================';
-    
-    message += title + '\n' + separator + '\n\n';
-    
-    expiredDomains.forEach((domain, index) => {
-      const expiryDate = new Date(domain.expiryDate);
-      const today = new Date();
-      const daysLeft = Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24));
-      
-      if (index > 0) {
-        message += '\n';
-      }
-      
-      message += '🌍 域名: ' + domain.name + '\n';
-      if (domain.registrar) {
-        message += '🏬 注册厂商: ' + domain.registrar + '\n';
-      }
-      message += '⏳ 剩余时间: ' + daysLeft + ' 天\n';
-      message += '📅 到期日期: ' + formatDate(domain.expiryDate) + '\n';
-      
-      if (domain.renewLink) {
-        message += '⚠️ 点击续期: ' + domain.renewLink + '\n';
-      } else {
-        message += '⚠️ 点击续期: 未设置续期链接\n';
-      }
-    });
+    message += '🚫 <b>域名已过期提醒</b> 🚫\n=====================\n\n';
+    message += sortByUrgency(expiredDomains).map(formatDomainBlock).join('\n');
+    message += '\n';
   }
-  
+
   // 发送消息
   return await sendTelegramMessage(config, message);
 }
 
 // 添加测试单个域名通知的后端函数
-async function testSingleDomainNotification(id) {
+async function testSingleDomainNotification(id, forceExpired) {
   // 获取域名信息
   const domains = await getDomains();
   const domain = domains.find(d => d.id === id);
@@ -5770,10 +5911,10 @@ async function testSingleDomainNotification(id) {
   }
   
   // 构建测试消息
-  const expiryDate = new Date(domain.expiryDate);
-  const today = new Date();
-  const daysLeft = Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24));
-  const isExpired = daysLeft <= 0;
+  const daysLeft = getDaysLeft(domain.expiryDate);
+  // 编辑页的“过期通知测试”强制走已过期模板，即使域名还没到期
+  const isExpired = !!forceExpired || daysLeft < 0;
+  const displayDaysLeft = forceExpired ? Math.min(daysLeft, -1) : daysLeft;
   
   let title = isExpired ? 
     '🚫 <b>域名已过期测试通知</b> 🚫' : 
@@ -5792,7 +5933,7 @@ async function testSingleDomainNotification(id) {
   if (domain.registrar) {
     message += '🏬 <b>注册厂商:</b> ' + domain.registrar + '\n';
   }
-  message += '⏳ <b>剩余时间:</b> ' + daysLeft + ' 天\n';
+  message += '⏳ <b>剩余时间:</b> ' + describeDaysLeft(displayDaysLeft) + '\n';
   message += '📅 <b>到期日期:</b> ' + formatDate(domain.expiryDate) + '\n';
   
   if (domain.renewLink) {
